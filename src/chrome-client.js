@@ -214,7 +214,12 @@ function render() {
 }
 
 function updateSendState() {
-  sendButton.disabled = ended || agentPresence === "working";
+  // This is a soft, mouse-only affordance: it dims the button when no agent looks attached
+  // (agentPresence "waiting" or a possibly-stale "working"), but sendQueued() itself never
+  // relies on this — Enter-key and in-iframe sends bypass button state entirely, and after
+  // the sendQueued() fix below, all three paths durably queue regardless of presence. This
+  // only sets user expectations about how soon an agent will see it.
+  sendButton.disabled = ended || agentPresence === "working" || agentPresence === "waiting";
   sendAndEndButton.disabled = sendButton.disabled;
   if (warningsQueueButton) updateWarningSelectionState();
 }
@@ -390,7 +395,14 @@ function requestSnapshot(action) {
 }
 
 function sendQueued(endAfter) {
-  if (ended || agentPresence === "working") return;
+  // Never silently drop a send. agentPresence === "working" can be stale (e.g. an
+  // immediate-return poll that never armed, or a poll superseded before it attached) with
+  // no actual listener — in that state this used to no-op with zero network request, zero
+  // error, and zero trace, destroying the user's queued feedback with no way to tell it
+  // happened. The server durably persists on every accepted /prompts POST regardless of
+  // presence, so it's always correct to attempt the send; presence only affects when an
+  // agent next sees it, never whether the data survives.
+  if (ended) return;
   closeMenus();
 
   const text = chatInput.value.trim();
